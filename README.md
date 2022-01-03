@@ -1,4 +1,4 @@
-# Strava-GPX-exporter
+# Strava GPX exporter
 Download all GPX from your Strava account
 
 
