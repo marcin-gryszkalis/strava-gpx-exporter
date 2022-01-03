@@ -76,9 +76,7 @@ def get_long_lived_token(client_id, client_secret, refresh_token):
     
 def get_activities(payload, n=1):
     url = f"https://www.strava.com/api/v3/athlete/activities"
-    print("url", url)
     param = {'per_page': n, 'page': 1}
-    print("param", param)
     r = requests.get(url, headers=payload, params=param)
     if r.status_code == 200:
         activities = r.json()
@@ -137,10 +135,8 @@ def main():
     else:
         n = 1
     client_id, client_secret = get_credential()
-    print(client_id, client_secret)
     get_access_token(client_id, client_secret)
     payload = get_short_lived_token(client_id, client_secret)
-    print(payload)
     df = get_activities(payload=payload, n=n)
     print(df)
     download_all(payload=payload, df=df)
