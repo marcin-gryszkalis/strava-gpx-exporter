@@ -58,6 +58,7 @@ def get_short_lived_token(client_id, client_secret):
     api_response = json.load(open("token.json"))
     if time.time() >= api_response["expires_at"]:
         get_long_lived_token(client_id, client_secret, api_response["refresh_token"])
+        api_response = json.load(open("token.json"))
     payload = {'Authorization': f'Bearer {api_response["access_token"]}'}
     return payload
 
@@ -69,6 +70,7 @@ def get_long_lived_token(client_id, client_secret, refresh_token):
         api_response = json.loads(r.text)
         with open("token.json", "w") as f:
             json.dump(api_response, f)
+        print("Successfully retrived a new access token")
     else:
         print("Error occurred when getting a long-lived token:", r.status_code)
         return -1
