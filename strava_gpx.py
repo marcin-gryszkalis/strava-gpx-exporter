@@ -76,9 +76,9 @@ def get_long_lived_token(client_id, client_secret, refresh_token):
         return -1
 
     
-def get_activities(payload, n=1):
+def list_activities(payload, n=1, p=1):
     url = f"https://www.strava.com/api/v3/athlete/activities"
-    param = {'per_page': n, 'page': 1}
+    param = {'per_page': n, 'page': p}
     r = requests.get(url, headers=payload, params=param)
     if r.status_code == 200:
         activities = r.json()
@@ -94,8 +94,10 @@ def download_all(payload, df):
     os.makedirs("gpx", exist_ok=True)
     for i in range(len(df)):
         activity_id, activity_name = df.iloc[i][["id", "name"]]
+        output_filename = f"gpx/{activity_id} {activity_name.replace('/', '_')}.gpx"
+        if os.path.isfile(output_filename):
+            continue
         stream_data = get_activity_stream(activity_id, payload)
-        output_filename = f"gpx/{activity_id} {activity_name}.gpx"
         stream2gpx(stream_data, output_filename, activity_name)
     
     
@@ -134,12 +136,16 @@ def stream2gpx(stream_data, output_filename, activity_name="Strava Activity"):
 def main():
     if len(sys.argv) > 1:
         n = int(sys.argv[1])
+        if len(sys.argv) > 2:
+            p = int(sys.argv[2])
+        else:
+            p = 1
     else:
         n = 1
     client_id, client_secret = get_credential()
     get_access_token(client_id, client_secret)
     payload = get_short_lived_token(client_id, client_secret)
-    df = get_activities(payload=payload, n=n)
+    df = list_activities(payload=payload, n=n, p=p)
     print(df)
     download_all(payload=payload, df=df)
     
