@@ -7,6 +7,56 @@ import sys
 import time
 import itertools
 
+gpxdir = "./gpx"
+pagesize = 10
+
+# https://developers.strava.com/docs/rate-limits/
+limit_per_15_minutes = 80
+limit_per_day = 800
+
+calls_in_15m = 0
+calls_in_day = 0
+
+prevts = 0
+def check_limits():
+    global prevts
+    global calls_in_15m
+    global calls_in_day
+
+    nowts = time.time()
+    now = time.gmtime(nowts) # strava uses UTC for limits
+    prevtime = time.gmtime(prevts)
+
+    if prevtime.tm_mday != now.tm_mday: # new day, reset limits
+        calls_in_15m = 0
+        calls_in_day = 0
+        prevts = nowts
+        return
+
+    if int(prevtime.tm_min/15) != int(now.tm_min/15): # new period, reset 15m limit
+        calls_in_15m = 0
+
+    if (calls_in_day >= limit_per_day): # limit reached, let's sleep
+        d = 86400
+        waittill = (nowts // d + 1) * d
+        needtosleep = waittill - nowts
+        print(f"Strava 15 minutes limit reached, sleeping {needtosleep} seconds")
+        sleep(needtosleep)
+    elif (calls_in_15m >= limit_per_15_minutes): # limit reached, let's sleep
+        d = 15 * 60
+        waittill = (nowts // d + 1) * d
+        needtosleep = waittill - nowts
+        print(f"Strava daily limit reached, sleeping {needtosleep} seconds")
+        sleep(needtosleep)
+    else:
+        prevts = nowts
+
+    calls_in_15m += 1
+    calls_in_day += 1
+
+# already downloaded files
+gpxes = {}
+
 def get_credential():
     if not (os.path.isfile("CLIENT_ID") and os.path.isfile("CLIENT_SECRET")):
         get_credential_from_user()
@@ -34,13 +84,12 @@ def get_access_token(client_id, client_secret):
         code = get_access_code(client_id)
         url = f"https://www.strava.com/oauth/token?client_id={client_id}&client_secret={client_secret}&code={code}&grant_type=authorization_code"
         r = requests.post(url)
-        if r.status_code == 200:
-            api_response = json.loads(r.text)
-            with open("token.json", "w") as f:
-                json.dump(api_response, f)
-        else:
-            print("Error occurred when getting an access code:", r.status_code)
-            return -1
+        if r.status_code != 200:
+            die("Error occurred when getting an access code:", r.status_code)
+        check_limits()
+        api_response = json.loads(r.text)
+        with open("token.json", "w") as f:
+            json.dump(api_response, f)
 
 
 def get_access_code(client_id):
@@ -66,54 +115,54 @@ def get_short_lived_token(client_id, client_secret):
 def get_long_lived_token(client_id, client_secret, refresh_token):
     url = f"https://www.strava.com/oauth/token?client_id={client_id}&client_secret={client_secret}&refresh_token={refresh_token}&grant_type=refresh_token"
     r = requests.post(url)
-    if r.status_code == 200:
-        api_response = json.loads(r.text)
-        with open("token.json", "w") as f:
-            json.dump(api_response, f)
-        print("Successfully retrived a new access token")
-    else:
-        print("Error occurred when getting a long-lived token:", r.status_code)
-        return -1
+    if r.status_code != 200:
+        die("Error occurred when getting a long-lived token:", r.status_code)
+    check_limits()
+    api_response = json.loads(r.text)
+    with open("token.json", "w") as f:
+        json.dump(api_response, f)
+    print("Successfully retrived a new access token")
 
 
-def list_activities(payload, n=1, p=1):
+def list_activities(payload, page):
     url = f"https://www.strava.com/api/v3/athlete/activities"
-    param = {'per_page': n, 'page': p}
+    param = {'per_page': pagesize, 'page': page}
     r = requests.get(url, headers=payload, params=param)
-    if r.status_code == 200:
-        activities = r.json()
-        df = pd.DataFrame(activities)
-        df = df[["start_date", "id", "type", "name"]]
-        return df
-    else:
-        print("Error occurred when getting activity list:", r.status_code)
-        return -1
+    if r.status_code != 200:
+        die("Error occurred when getting activity list:", r.status_code)
+    check_limits()
+    return r.json()
 
 
-def download_all(payload, df):
-    os.makedirs("gpx", exist_ok=True)
-    for i in range(len(df)):
-        activity_id, activity_name = df.iloc[i][["id", "name"]]
-        output_filename = f"gpx/{activity_id} {activity_name.replace('/', '_')}.gpx"
-        if os.path.isfile(output_filename):
-            continue
-        stream_data = get_activity_stream(activity_id, payload)
-        stream2gpx(stream_data, output_filename, activity_name)
+def save_activity(payload, activity):
+    activity_id = activity["id"]
+    activity_name = re.sub('[^a-zA-Z0-9_-]', '_', activity["name"])
+    activity_start_date = re.sub('Z$', '+0000', activity['start_date'])
+    activity_start_time = time.mktime(time.strptime(activity_start_date, '%Y-%m-%dT%H:%M:%S%z')) + activity["utc_offset"]
+
+    fn = f'{activity_id}_{activity_name}_-_{activity["sport_type"]}.gpx'
+    # for testing
+    # if gpxes[fn]:
+    #     return
+
+    output_filename = os.path.join(gpxdir, fn)
+
+    stream_data = get_activity_stream(payload, activity_id)
+    stream2gpx(stream_data, output_filename, activity_name, activity_start_time)
 
 
-def get_activity_stream(activity_id, payload):
+def get_activity_stream(payload, activity_id):
     url = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
-    print(url, end="  ")
     # for "moving" (pause logic) you may check https://github.com/cpfair/tapiriik/blob/master/tapiriik/services/Strava/strava.py
     keys = ["latlng", "altitude", "time", "heartrate", "cadence", "temp", "watts", "moving"]
     param = {"keys": ",".join(keys)}
-    try:
-        r = requests.get(url, headers=payload, params=param)
-        print(r.status_code)
-        j = json.loads(r.text)
-    except:
-        print(f"error occurred when fetching {activity_id} ")
-        return {"latlng": [], "altitude": []}
+
+    r = requests.get(url, headers=payload, params=param)
+    if r.status_code != 200:
+        die("Error occurred when getting activity stream (activity_id):", r.status_code)
+    check_limits()
+
+    j = json.loads(r.text)
 
     res = {}
     for k in keys:
@@ -132,12 +181,11 @@ def tpxf(name, value):
     return f"<gpxtpx:{name}>{value}</gpxtpx:{name}>"
 
 
-def stream2gpx(stream_data, output_filename, activity_name="Strava Activity"):
+def stream2gpx(stream_data, output_filename, activity_name, activity_start_time):
     if len(stream_data["latlng"]) < 2:
         return -1
-    try:
-        with open(output_filename, "w") as f:
-            f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
+    with open(output_filename, "w") as f:
+        f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
 <gpx creator="Strava-GPX-Exporter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/GpxExtensions/v3 http://www.garmin.com/xmlschemas/GpxExtensionsv3.xsd http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd" version="1.1" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">
 <metadata>
     <name>{activity_name}</name>
@@ -147,10 +195,9 @@ def stream2gpx(stream_data, output_filename, activity_name="Strava Activity"):
     <trkseg>
 """)
 
-            for (lat, lon), time, alt, hr, cad, temp, power in itertools.zip_longest(stream_data["latlng"], stream_data["time"], stream_data["altitude"], stream_data["heartrate"], stream_data["cadence"], stream_data["temp"], stream_data["watts"]):
-                rtime = time # 2023-04-10T14:06:42+00:00
-                print(f"{time} {rtime}")
-                f.write(f"""
+        for (lat, lon), timeoffset, alt, hr, cad, temp, power in itertools.zip_longest(stream_data["latlng"], stream_data["time"], stream_data["altitude"], stream_data["heartrate"], stream_data["cadence"], stream_data["temp"], stream_data["watts"]):
+            rtime = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(activity_start_time + timeoffset))
+            f.write(f"""
 <trkpt lat="{lat}" lon="{lon}">
     <time>{rtime}</time>
     <ele>{alt}</ele>
@@ -164,25 +211,34 @@ def stream2gpx(stream_data, output_filename, activity_name="Strava Activity"):
     </extensions>
 </trkpt>
 """)
-            f.write("    </trkseg>\n</trk>\n</gpx>")
-    except Exception as ex:
-        print(f"error occurred when exporting {output_filename}: {type(ex)=}, {ex=}")
+        f.write("    </trkseg>\n</trk>\n</gpx>")
 
 
 def main():
-    n = 1
-    p = 1
-    if len(sys.argv) > 1:
-        n = int(sys.argv[1])
-        if len(sys.argv) > 2:
-            p = int(sys.argv[2])
 
     client_id, client_secret = get_credential()
     get_access_token(client_id, client_secret)
     payload = get_short_lived_token(client_id, client_secret)
-    df = list_activities(payload=payload, n=n, p=p)
-    print(df)
-    download_all(payload=payload, df=df)
+
+    # get existing files
+    os.makedirs(gpxdir, exist_ok=True)
+    for f in os.listdir(gpxdir):
+        if os.path.isfile(os.path.join(gpxdir, f)):
+            gpxes[f] = True
+
+    page = 1
+    while True:
+        activities = list_activities(payload, page)
+        if not activities:
+            break
+
+        for a in activities:
+            print(f'{a["id"]}: {a["name"]}')
+            save_activity(payload, a)
+            exit()
+
+        page += 1
+
 
 
 if __name__ == "__main__":
