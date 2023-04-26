@@ -11,8 +11,8 @@ gpxdir = "./gpx"
 pagesize = 10
 
 # https://developers.strava.com/docs/rate-limits/
-limit_per_15_minutes = 80
-limit_per_day = 800
+limit_per_15_minutes = 90
+limit_per_day = 900
 
 calls_in_15m = 0
 calls_in_day = 0
@@ -39,15 +39,15 @@ def check_limits():
     if (calls_in_day >= limit_per_day): # limit reached, let's sleep
         d = 86400
         waittill = (nowts // d + 1) * d
-        needtosleep = waittill - nowts
-        print(f"Strava 15 minutes limit reached, sleeping {needtosleep} seconds")
-        sleep(needtosleep)
+        needtosleep = int(waittill - nowts) + 1
+        print(f"Strava daily limit reached, sleeping {needtosleep} seconds")
+        time.sleep(needtosleep)
     elif (calls_in_15m >= limit_per_15_minutes): # limit reached, let's sleep
         d = 15 * 60
         waittill = (nowts // d + 1) * d
-        needtosleep = waittill - nowts
-        print(f"Strava daily limit reached, sleeping {needtosleep} seconds")
-        sleep(needtosleep)
+        needtosleep = int(waittill - nowts) + 1
+        print(f"Strava 15 minutes limit reached, sleeping {needtosleep} seconds")
+        time.sleep(needtosleep)
     else:
         prevts = nowts
 
@@ -139,11 +139,11 @@ def save_activity(payload, activity):
     activity_name = re.sub('[^a-zA-Z0-9_-]', '_', activity["name"])
     activity_start_date = re.sub('Z$', '+0000', activity['start_date'])
     activity_start_time = time.mktime(time.strptime(activity_start_date, '%Y-%m-%dT%H:%M:%S%z')) + activity["utc_offset"]
+    stime = time.strftime('%Y-%m-%d', time.gmtime(activity_start_time))
 
-    fn = f'{activity_id}_{activity_name}_-_{activity["sport_type"]}.gpx'
-    # for testing
-    # if gpxes[fn]:
-    #     return
+    fn = f'{stime}_{activity_id}_{activity_name}_-_{activity["sport_type"]}.gpx'
+    if fn in gpxes:
+        return
 
     output_filename = os.path.join(gpxdir, fn)
 
@@ -169,7 +169,6 @@ def get_activity_stream(payload, activity_id):
         res[k] = []
 
     for s in j:
-        print(s["type"])
         res[s["type"]] = s["data"]
 
     return res;
@@ -235,7 +234,7 @@ def main():
         for a in activities:
             print(f'{a["id"]}: {a["name"]}')
             save_activity(payload, a)
-            exit()
+#            exit()
 
         page += 1
 
