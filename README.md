@@ -1,12 +1,7 @@
 # Strava GPX exporter
 Download all GPX from your Strava account
 
-
-## Prerequisite
-
-- pandas
-
-## Set-up
+## Setup
 
 Before you run the script, make sure you create your API application [here](https://www.strava.com/settings/api).
 
@@ -20,22 +15,17 @@ Your client ID and secret are only saved on your computer locally and will never
 
 Follow the prompt to finish the remainder of the one-time set-up process. 
 
-## Usuages
+## Usage
 
-Download the GPX of your latest activity
+Download all gpx files from strava account
 
 ```
 python strava_gpx.py
 ```
 
-Download the GPX of your latest N activities
-
-Say, you want to download your recent 50 activities:
-
-```
-python strava_gpx.py 50
-```
-
-Current limit is `99` due to Strava API's rate limit.
-
 Once the download completes, the gpx files can be found under `gpx/`.
+
+## Limits
+
+Script tries to adhere to default Strava limits (1000 API calls per day, 100 per 15 minutes) but it may still fail if you run the script several times (as usage is not persistent between runs).
+

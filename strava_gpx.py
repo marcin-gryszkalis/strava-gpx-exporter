@@ -1,6 +1,6 @@
+# https://github.com/marcin-gryszkalis/Strava-GPX-exporter
 import requests
 import json
-import pandas as pd
 import os
 import re
 import sys
@@ -8,7 +8,10 @@ import time
 import itertools
 
 gpxdir = "./gpx"
-pagesize = 10
+pagesize = 100
+
+# already downloaded files
+gpxes = {}
 
 # https://developers.strava.com/docs/rate-limits/
 limit_per_15_minutes = 90
@@ -33,7 +36,7 @@ def check_limits():
         prevts = nowts
         return
 
-    if int(prevtime.tm_min/15) != int(now.tm_min/15): # new period, reset 15m limit
+    if prevtime.tm_min // 15 != now.tm_min // 15: # new period, reset 15m limit
         calls_in_15m = 0
 
     if (calls_in_day >= limit_per_day): # limit reached, let's sleep
@@ -54,8 +57,13 @@ def check_limits():
     calls_in_15m += 1
     calls_in_day += 1
 
-# already downloaded files
-gpxes = {}
+
+def die(msg, r):
+    fault = json.loads(r.text)
+    fm = fault["message"]
+    print(f"[status:{r.status_code}] {msg}: {fm}")
+    exit(1)
+
 
 def get_credential():
     if not (os.path.isfile("CLIENT_ID") and os.path.isfile("CLIENT_SECRET")):
@@ -85,7 +93,7 @@ def get_access_token(client_id, client_secret):
         url = f"https://www.strava.com/oauth/token?client_id={client_id}&client_secret={client_secret}&code={code}&grant_type=authorization_code"
         r = requests.post(url)
         if r.status_code != 200:
-            die("Error occurred when getting an access code:", r.status_code)
+            die(f"Error occurred when getting an access code", r)
         check_limits()
         api_response = json.loads(r.text)
         with open("token.json", "w") as f:
@@ -116,7 +124,7 @@ def get_long_lived_token(client_id, client_secret, refresh_token):
     url = f"https://www.strava.com/oauth/token?client_id={client_id}&client_secret={client_secret}&refresh_token={refresh_token}&grant_type=refresh_token"
     r = requests.post(url)
     if r.status_code != 200:
-        die("Error occurred when getting a long-lived token:", r.status_code)
+        die(f"Error occurred when getting a long-lived token", r)
     check_limits()
     api_response = json.loads(r.text)
     with open("token.json", "w") as f:
@@ -129,7 +137,7 @@ def list_activities(payload, page):
     param = {'per_page': pagesize, 'page': page}
     r = requests.get(url, headers=payload, params=param)
     if r.status_code != 200:
-        die("Error occurred when getting activity list:", r.status_code)
+        die(f"Error occurred when getting activity list", r)
     check_limits()
     return r.json()
 
@@ -148,7 +156,8 @@ def save_activity(payload, activity):
     output_filename = os.path.join(gpxdir, fn)
 
     stream_data = get_activity_stream(payload, activity_id)
-    stream2gpx(stream_data, output_filename, activity_name, activity_start_time)
+    if stream_data:
+        stream2gpx(stream_data, output_filename, activity_name, activity_start_time)
 
 
 def get_activity_stream(payload, activity_id):
@@ -158,8 +167,10 @@ def get_activity_stream(payload, activity_id):
     param = {"keys": ",".join(keys)}
 
     r = requests.get(url, headers=payload, params=param)
+    if r.status_code == 404:
+        return None
     if r.status_code != 200:
-        die("Error occurred when getting activity stream (activity_id):", r.status_code)
+        die(f"Error occurred when getting activity stream ({activity_id})", r)
     check_limits()
 
     j = json.loads(r.text)
@@ -225,6 +236,7 @@ def main():
         if os.path.isfile(os.path.join(gpxdir, f)):
             gpxes[f] = True
 
+    i = 1
     page = 1
     while True:
         activities = list_activities(payload, page)
@@ -232,13 +244,20 @@ def main():
             break
 
         for a in activities:
-            print(f'{a["id"]}: {a["name"]}')
+            manualmsg = ""
+            if a["manual"]:
+                manualmsg = " MANUAL"
+            print(f'{i : >5}. {a["id"]} {a["sport_type"]}: {a["name"]}{manualmsg}')
+
+            if a["manual"]:
+                continue
+
             save_activity(payload, a)
+            i += 1
 #            exit()
 
         page += 1
-
-
+        
 
 if __name__ == "__main__":
     main()
