@@ -5,17 +5,22 @@ import re
 import time
 import itertools
 import requests
+import argparse
 
 GPXDIR = "./gpx"
 PAGESIZE = 100
 REQUEST_TIMEOUT = 300
 
-# already downloaded files
-gpxes = {}
-
 # https://developers.strava.com/docs/rate-limits/
 LIMIT_PER_15_MINUTES = 90
 LIMIT_PER_DAY = 900
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-a", "--all", help="check all activities (by default it stops on first exising activity file)", action="store_true")
+args = parser.parse_args()
+
+# already downloaded files
+gpxes = {}
 
 calls_in_15m = 0
 calls_in_day = 0
@@ -141,7 +146,7 @@ def list_activities(payload, page):
     check_limits()
     return response.json()
 
-
+# return True unless file already existed
 def save_activity(payload, activity):
     activity_id = activity["id"]
     activity_name = re.sub('[^a-zA-Z0-9_-]', '_', activity["name"])
@@ -151,16 +156,17 @@ def save_activity(payload, activity):
 
     fname = f'{stime}_{activity_id}_{activity_name}_-_{activity["sport_type"]}.gpx'
     if fname in gpxes:
-        return
+        return False
 
     output_filename = os.path.join(GPXDIR, fname)
 
     stream_data = get_activity_stream(payload, activity_id)
 
     if not stream_data or len(stream_data["latlng"]) < 2:
-        return
+        return True
 
     stream2gpx(stream_data, output_filename, activity_name, activity_start_time)
+    return True
 
 
 def get_activity_stream(payload, activity_id):
@@ -225,18 +231,7 @@ def stream2gpx(stream_data, output_filename, activity_name, activity_start_time)
         f.write("    </trkseg>\n</trk>\n</gpx>")
 
 
-def main():
-
-    client_id, client_secret = get_credential()
-    get_access_token(client_id, client_secret)
-    payload = get_short_lived_token(client_id, client_secret)
-
-    # get existing files
-    os.makedirs(GPXDIR, exist_ok=True)
-    for f in os.listdir(GPXDIR):
-        if os.path.isfile(os.path.join(GPXDIR, f)):
-            gpxes[f] = True
-
+def process_activities(payload):
     i = 1
     page = 1
     while True:
@@ -253,10 +248,27 @@ def main():
             if act["manual"]:
                 continue
 
-            save_activity(payload, act)
-            i += 1
+            valid = save_activity(payload, act)
+            if not args.all and not valid:
+                return
 
+            i += 1
         page += 1
+
+
+def main():
+
+    client_id, client_secret = get_credential()
+    get_access_token(client_id, client_secret)
+    payload = get_short_lived_token(client_id, client_secret)
+
+    # get existing files
+    os.makedirs(GPXDIR, exist_ok=True)
+    for f in os.listdir(GPXDIR):
+        if os.path.isfile(os.path.join(GPXDIR, f)):
+            gpxes[f] = True
+
+    process_activities(payload)
 
 
 if __name__ == "__main__":
