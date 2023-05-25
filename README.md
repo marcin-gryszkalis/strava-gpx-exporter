@@ -29,3 +29,5 @@ Once the download completes, the gpx files can be found under `gpx/`.
 
 Script tries to adhere to default Strava limits (1000 API calls per day, 100 per 15 minutes) but it may still fail if you run the script several times (as usage is not persistent between runs).
 
+## Authors
+The script was forked from https://github.com/liponan/Strava-GPX-exporter although it worked differently, gpx creation was limited and so on (but it had nice working authentication part). Thus I decided to split from original one.
