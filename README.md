@@ -1,5 +1,5 @@
 # Strava GPX exporter
-Download all GPX from your Strava account
+Download all GPXs from your Strava account
 
 ## Setup
 
@@ -17,13 +17,15 @@ Follow the prompt to finish the remainder of the one-time set-up process.
 
 ## Usage
 
-Download all gpx files from strava account
+Download all gpx files from strava account.
 
 ```
 python strava_gpx.py
 ```
 
 Once the download completes, the gpx files can be found under `gpx/`.
+
+By default activities are checked starting from most recent and the process stops at first activity that already has corresponding file in `gpx/` directory. You can force checking all activities by specifying `--all` switch (activities that were already downloaded are not re-downloaded, if you want to update gpx just delete or rename existing .gpx file).
 
 ## Limits
 
